@@ -14,14 +14,14 @@ IMG = b"\xff\xd8fake-jpeg"
 BOX = {"top": 0.1, "bottom": 0.9, "left": 0.2, "right": 0.8}
 
 
-def answers(p: float, kind: str = "western", *, locate: bool = False) -> dict:
+def response(p: float, kind: str = "western", *, locate: bool = False) -> dict:
     a = {
         "is_target": {"type": "noul", "noul": p},
         "kind": {"type": "choice", "choice": kind, "probabilities": {kind: 1.0}, "confidence": 1.0},
     }
     if locate:
         a["locate"] = {"type": "box", "box": BOX, "confidence": 0.9}
-    return a
+    return {"model": "jev-1.14.0", "answers": a, "usage": {"input_tokens": 100, "output_tokens": 10}}
 
 
 def test_build_request_references_image_in_state():
@@ -49,21 +49,23 @@ def test_locate_adds_box_question():
 
 
 def test_thresholds():
-    assert to_verdict(PROFILE, answers(0.8)).result == "yes"
-    assert to_verdict(PROFILE, answers(0.79)).result == "unsure"
-    assert to_verdict(PROFILE, answers(0.21)).result == "unsure"
-    assert to_verdict(PROFILE, answers(0.2)).result == "no"
+    assert to_verdict(PROFILE, response(0.8)).result == "yes"
+    assert to_verdict(PROFILE, response(0.79)).result == "unsure"
+    assert to_verdict(PROFILE, response(0.21)).result == "unsure"
+    assert to_verdict(PROFILE, response(0.2)).result == "no"
 
 
 def test_verdict_details_and_box():
-    v = to_verdict(PROFILE, answers(0.9, "eastern", locate=True))
+    resp = response(0.9, "eastern", locate=True)
+    v = to_verdict(PROFILE, resp)
     assert v.details == {"kind": "eastern"}
     assert v.box == Box(top=0.1, left=0.2, bottom=0.9, right=0.8)
+    assert v.response == resp
 
 
 def test_box_ignored_unless_yes():
-    assert to_verdict(PROFILE, answers(0.5, locate=True)).box is None
-    assert to_verdict(PROFILE, answers(0.1, locate=True)).box is None
+    assert to_verdict(PROFILE, response(0.5, locate=True)).box is None
+    assert to_verdict(PROFILE, response(0.1, locate=True)).box is None
 
 
 class FakeJev:
@@ -73,7 +75,7 @@ class FakeJev:
 
     async def __call__(self, body: dict) -> dict:
         self.bodies.append(body)
-        return {"answers": answers(self.p, locate="locate" in body["questions"])}
+        return response(self.p, locate="locate" in body["questions"])
 
 
 def run_judge(send, *, locate: bool):
@@ -90,8 +92,8 @@ def test_judge_locates_in_single_request():
 def test_cached_skips_second_call():
     jev = FakeJev(0.95)
     send = cached(jev, MemoryCache())
-    run_judge(send, locate=False)
-    run_judge(send, locate=False)
+    assert not run_judge(send, locate=False).response.get("cached")
+    assert run_judge(send, locate=False).response["cached"] is True
     assert len(jev.bodies) == 1
 
 

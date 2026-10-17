@@ -4,6 +4,7 @@ import asyncio
 import logging
 import os
 import sys
+from io import BytesIO
 
 import discord
 import httpx
@@ -11,6 +12,7 @@ from discord import app_commands
 from PIL import UnidentifiedImageError
 
 from is_it_dragon.adapters.cache_memory import MemoryCache
+from is_it_dragon.adapters.draw_pil import draw_box
 from is_it_dragon.adapters.fetch_image import MAX_BYTES, FetchError, fetch_image
 from is_it_dragon.adapters.jev_httpx import Jev, JevError
 from is_it_dragon.adapters.normalize_pil import normalize
@@ -37,18 +39,24 @@ ImageItem = discord.Attachment | str
 
 
 def message_images(message) -> list[ImageItem]:
-    """添付の画像と、埋め込みの画像（なければサムネイル）を集める。"""
-    items: list[ImageItem] = [a for a in message.attachments if (a.content_type or "").startswith("image/")]
-    for embed in message.embeds:
-        media = embed.image if embed.image.url else embed.thumbnail
-        url = media.proxy_url or media.url
-        if url and url not in items:
-            items.append(url)
+    """添付の画像と、埋め込みの画像（なければサムネイル）を集める。転送されたメッセージは転送元の中身も見る。"""
+    items: list[ImageItem] = []
+    for m in [message, *message.message_snapshots]:
+        items += [a for a in m.attachments if (a.content_type or "").startswith("image/")]
+        for embed in m.embeds:
+            media = embed.image if embed.image.url else embed.thumbnail
+            url = media.proxy_url or media.url
+            if url and url not in items:
+                items.append(url)
     return items
 
 
 def item_url(item: ImageItem) -> str:
     return item.url if isinstance(item, discord.Attachment) else item
+
+
+def is_spoiler(item: ImageItem) -> bool:
+    return isinstance(item, discord.Attachment) and item.is_spoiler()
 
 
 async def read_image(item: ImageItem, client: httpx.AsyncClient) -> bytes:
@@ -60,17 +68,41 @@ async def read_image(item: ImageItem, client: httpx.AsyncClient) -> bytes:
     return await fetch_image(item, client)
 
 
-def verdict_embed(v: Verdict, profile: dict, url: str) -> discord.Embed:
+def format_probabilities(probabilities: dict[str, float]) -> str:
+    ranked = sorted(probabilities.items(), key=lambda kv: kv[1], reverse=True)
+    return " ・ ".join(f"{k} {p:.0%}" for k, p in ranked if p >= 0.005)
+
+
+def verdict_embed(
+    v: Verdict,
+    profile: dict,
+    url: str | None,
+    *,
+    box_image_url: str | None = None,
+) -> discord.Embed:
+    """url は元画像（スポイラーなら None）。box_image_url は枠を描いた画像。"""
+    answers = v.response["answers"]
     embed = discord.Embed(
         title=RESULT_TEXT[v.result].format(label=profile["label"]),
         description=f"確率 {v.p:.0%}",
         color=COLORS[v.result],
     )
-    # yes でないときの choice は当てにならないので出さない
-    if v.result == "yes":
-        for name, choice in v.details.items():
-            embed.add_field(name=name, value=choice)
-    embed.set_thumbnail(url=url)
+    # no のときの choice は当てにならないので出さない
+    if v.result != "no":
+        for name, a in answers.items():
+            if a["type"] == "choice":
+                value = f"{format_probabilities(a['probabilities'])}\n信頼度 {a['confidence']:.2f}"
+                embed.add_field(name=name, value=value, inline=False)
+    if v.box:
+        b = v.box
+        value = f"top {b.top:.2f} / left {b.left:.2f} / bottom {b.bottom:.2f} / right {b.right:.2f}"
+        embed.add_field(name="位置", value=f"{value}\n信頼度 {answers['locate']['confidence']:.2f}", inline=False)
+    footer = f"{v.response['model']} ・ {v.response['usage']['input_tokens']:,} tokens"
+    embed.set_footer(text=footer + (" ・ キャッシュ" if v.response.get("cached") else ""))
+    if box_image_url:
+        embed.set_image(url=box_image_url)
+    elif url:
+        embed.set_thumbnail(url=url)
     return embed
 
 
@@ -86,9 +118,10 @@ def error_message(e: Exception) -> str:
             return "判定中にエラーが発生しました"
 
 
-def error_embed(message: str, url: str) -> discord.Embed:
+def error_embed(message: str, url: str | None) -> discord.Embed:
     embed = discord.Embed(title="判定できませんでした", description=message, color=discord.Color.red())
-    embed.set_thumbnail(url=url)
+    if url:
+        embed.set_thumbnail(url=url)
     return embed
 
 
@@ -113,20 +146,28 @@ class Bot(discord.Client):
         await self.fetcher.aclose()
         await super().close()
 
-    async def judge_embed(self, item: ImageItem) -> discord.Embed:
-        url = item_url(item)
+    async def judge_embed(self, item: ImageItem, index: int) -> tuple[discord.Embed, discord.File | None]:
+        """判定結果の Embed と、枠を描いた画像の添付ファイル（なければ None）を返す。"""
+        # スポイラーの画像は、Embed に出すとぼかしなしで見えてしまうので出さない
+        url = None if is_spoiler(item) else item_url(item)
         try:
             raw = await read_image(item, self.fetcher)
-            v = await judge(raw, self.profile, normalize=normalize, send=self.send, source=SOURCE)
+            v = await judge(raw, self.profile, normalize=normalize, send=self.send, source=SOURCE, locate=True)
         except Exception as e:
-            log.warning("judge failed: %s", url, exc_info=e)
-            return error_embed(error_message(e), url)
-        return verdict_embed(v, self.profile, url)
+            log.warning("judge failed: %s", item_url(item), exc_info=e)
+            return error_embed(error_message(e), url), None
+        if not (v.box and url):
+            return verdict_embed(v, self.profile, url), None
+        jpg = await asyncio.to_thread(lambda: draw_box(normalize(raw), v.box))
+        file = discord.File(BytesIO(jpg), filename=f"box{index}.jpg")
+        return verdict_embed(v, self.profile, url, box_image_url=f"attachment://{file.filename}"), file
 
     async def reply(self, interaction: discord.Interaction, items: list[ImageItem]) -> None:
-        embeds = await asyncio.gather(*(self.judge_embed(item) for item in items[:MAX_IMAGES]))
+        results = await asyncio.gather(*(self.judge_embed(item, i) for i, item in enumerate(items[:MAX_IMAGES])))
         content = f"画像が多いため、先頭の{MAX_IMAGES}枚だけ判定しました" if len(items) > MAX_IMAGES else None
-        await interaction.followup.send(content=content, embeds=list(embeds))
+        embeds = [embed for embed, _ in results]
+        files = [file for _, file in results if file]
+        await interaction.followup.send(content=content, embeds=embeds, files=files)
 
 
 @app_commands.command(name="dragon", description="画像にドラゴンがいるか判定します")

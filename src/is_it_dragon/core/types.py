@@ -16,6 +16,7 @@ class Verdict:
     result: Literal["yes", "no", "unsure"]
     p: float
     details: dict[str, str]
+    response: dict  # API の応答全体。確率の分布や usage を表示するときに使う
     box: Box | None = None
 
 
