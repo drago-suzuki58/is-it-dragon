@@ -9,5 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+# lab のキャッシュ
+.cache/
+
 # Secrets
 .env

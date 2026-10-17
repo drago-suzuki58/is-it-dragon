@@ -1,0 +1,28 @@
+{
+  "id": "dragon",
+  "label": "ドラゴン",
+  "main": "is_target",
+  "thresholds": { "yes": 0.8, "no": 0.2 },
+  "questions": {
+    "is_target": {
+      "type": "noul",
+      "instructions": "Is there a dragon in `image`?",
+      "criteria": {
+        "true": "A dragon in any style or medium (illustration, 3D render, figure, pixel art, costume, logo, sticker), including cute, chibi or heavily stylized designs and game or anime monsters that are dragons, even when their body shape is unusual. Includes Western dragons, Eastern serpentine dragons, wyverns, drakes and anthropomorphic dragon characters. Counts even if only partly visible.",
+        "false": "No dragon. Real reptiles (lizards, Komodo dragons, bearded dragons), dinosaurs, dragonflies, griffins and other creatures do not count."
+      }
+    },
+    "kind": {
+      "type": "choice",
+      "instructions": "What kind of dragon is most prominent in `image`?",
+      "criteria": {
+        "western": "Four legs plus a separate pair of wings.",
+        "wyvern": "Two legs; the wings double as forelimbs.",
+        "eastern": "Long serpentine body, usually wingless, East Asian style.",
+        "anthro": "Humanoid or anthropomorphic dragon character.",
+        "none": "No dragon in the image."
+      }
+    }
+  },
+  "locate": { "instructions": "the dragon in `image`" }
+}
