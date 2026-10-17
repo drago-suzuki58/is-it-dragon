@@ -8,11 +8,13 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "discord-py>=2.7.1",
     "httpx>=0.28.1",
     "pillow>=13.0.0",
 ]
 
 [project.scripts]
+is-it-dragon = "is_it_dragon.apps.discord_bot:main"
 lab = "is_it_dragon.apps.lab:main"
 
 [build-system]

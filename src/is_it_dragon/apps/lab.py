@@ -15,12 +15,13 @@ from is_it_dragon.adapters.cache_disk import DiskCache
 from is_it_dragon.adapters.fetch_image import fetch_image
 from is_it_dragon.adapters.jev_httpx import Jev
 from is_it_dragon.adapters.normalize_pil import normalize
+from is_it_dragon.apps.discord_bot import SOURCE
 from is_it_dragon.core.request import build_request, request_key
 from is_it_dragon.core.types import Box, Transport
 from is_it_dragon.judge import PROFILES_DIR, judge, load_profile
 
 CACHE_DIR = PROFILES_DIR.parent / ".cache" / "lab"
-DEFAULT_SOURCE = "An image posted in a Discord message"  # Bot と同じ文言
+DEFAULT_SOURCE = SOURCE  # Bot と同じ条件で試す
 USD_PER_INPUT_TOKEN = 0.042 / 1_000_000
 
 
