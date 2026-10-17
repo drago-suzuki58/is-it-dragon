@@ -1,5 +1,8 @@
 import asyncio
 import base64
+import json
+
+import pytest
 
 from is_it_dragon.adapters.cache_memory import MemoryCache
 from is_it_dragon.core.request import build_request, image_ref, request_key
@@ -95,6 +98,22 @@ def test_cached_skips_second_call():
     assert not run_judge(send, locate=False).response.get("cached")
     assert run_judge(send, locate=False).response["cached"] is True
     assert len(jev.bodies) == 1
+
+
+def test_load_profile_by_path_and_validates(tmp_path):
+    good = tmp_path / "variant.json"
+    good.write_text(json.dumps({**PROFILE, "id": "variant"}))
+    assert load_profile(str(good))["id"] == "variant"
+
+    missing = tmp_path / "missing.json"
+    missing.write_text(json.dumps({"id": "x"}))
+    with pytest.raises(ValueError, match="label"):
+        load_profile(str(missing))
+
+    wrong_main = tmp_path / "wrong_main.json"
+    wrong_main.write_text(json.dumps({**PROFILE, "main": "nope"}))
+    with pytest.raises(ValueError, match="nope"):
+        load_profile(str(wrong_main))
 
 
 def test_memory_cache_evicts_oldest():

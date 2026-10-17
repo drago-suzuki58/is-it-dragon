@@ -151,14 +151,15 @@ def error_embed(message: str, url: str | None, link: str | None = None) -> disco
 
 
 class Bot(discord.Client):
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, profile: dict):
         # インタラクションだけを扱うので Gateway Intents は不要
         super().__init__(intents=discord.Intents.none())
         self.tree = app_commands.CommandTree(self)
-        self.profile = load_profile("dragon")
+        self.profile = profile
         self._api_key = api_key
 
     async def setup_hook(self) -> None:
+        log.info("profile: %s", self.profile["id"])
         self.jev = Jev(self._api_key)
         self.fetcher = httpx.AsyncClient(timeout=10)
         self.send = cached(self.jev, MemoryCache())
@@ -232,4 +233,11 @@ def main() -> None:
     api_key = os.environ.get("TYPESAFE_API_KEY")
     if not token or not api_key:
         sys.exit("DISCORD_TOKEN と TYPESAFE_API_KEY を設定してください")
-    Bot(api_key).run(token)
+    # プロファイル名（profiles/ の中のファイル名）か、.json ファイルのパス
+    name = os.environ.get("IS_IT_DRAGON_PROFILE") or "dragon"
+    try:
+        profile = load_profile(name)
+    except (OSError, ValueError) as e:
+        sys.exit(f"プロファイルを読めません（{name}）: {e}")
+    # root_logger=True で、discord.py 以外（このモジュール）のログも同じ形式で出す
+    Bot(api_key, profile).run(token, root_logger=True)

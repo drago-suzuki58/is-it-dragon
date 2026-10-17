@@ -7,6 +7,7 @@ from is_it_dragon.core.types import Cache, Normalizer, Transport, Verdict
 from is_it_dragon.core.verdict import to_verdict
 
 PROFILES_DIR = Path(__file__).resolve().parents[2] / "profiles"
+REQUIRED_KEYS = ("id", "label", "main", "thresholds", "questions")
 
 
 def load_profile(name_or_path: str) -> dict:
@@ -14,7 +15,12 @@ def load_profile(name_or_path: str) -> dict:
     path = Path(name_or_path)
     if path.suffix != ".json":
         path = PROFILES_DIR / f"{name_or_path}.json"
-    return json.loads(path.read_text())
+    profile = json.loads(path.read_text())
+    if missing := [k for k in REQUIRED_KEYS if k not in profile]:
+        raise ValueError(f"{path} に必要なキーがありません: {', '.join(missing)}")
+    if profile["main"] not in profile["questions"]:
+        raise ValueError(f"{path} の main（{profile['main']}）が questions にありません")
+    return profile
 
 
 async def judge(
