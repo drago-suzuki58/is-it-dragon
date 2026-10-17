@@ -24,5 +24,17 @@
       }
     }
   },
-  "locate": { "instructions": "the dragon in `image`" }
+  "locate": { "instructions": "the dragon in `image`" },
+  "display": {
+    "kind": {
+      "label": "種類",
+      "options": {
+        "western": "西洋型",
+        "wyvern": "ワイバーン",
+        "eastern": "東洋型",
+        "anthro": "獣人型",
+        "none": "なし"
+      }
+    }
+  }
 }

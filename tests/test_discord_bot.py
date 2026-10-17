@@ -67,17 +67,20 @@ def test_message_images_reads_forwarded_message():
 
 
 def test_format_probabilities_ranks_and_drops_zero():
-    assert format_probabilities({"a": 0.2, "b": 0.0, "c": 0.8}) == "c 80% ・ a 20%"
+    assert format_probabilities({"a": 0.2, "b": 0.0, "c": 0.8}, {"c": "シー"}) == "シー 80% ・ a 20%"
 
 
 def test_verdict_embed_yes_shows_details_and_box_image():
     v = to_verdict(PROFILE, response(0.97))
-    embed = verdict_embed(v, PROFILE, "https://x/a.png", box_image_url="https://cdn/box.jpg")
+    embed = verdict_embed(
+        v, PROFILE, "https://x/a.png", box_image_url="https://cdn/box.jpg", link="https://discord.com/channels/1/2/3"
+    )
     assert embed.title == "ドラゴンがいます"
-    assert embed.description == "確率 97%"
+    assert embed.url == "https://discord.com/channels/1/2/3"
+    assert embed.description == "ドラゴンがいる確率 97%"
     fields = {f.name: f.value for f in embed.fields}
-    assert fields["kind"] == "western 49% ・ anthro 31% ・ wyvern 20%\n信頼度 0.36"
-    assert fields["位置"] == "top 0.02 / left 0.10 / bottom 0.98 / right 0.90\n信頼度 0.75"
+    assert fields["種類"] == "西洋型 49% ・ 獣人型 31% ・ ワイバーン 20%\n種類の確信度 0.36"
+    assert fields["位置"] == "top 0.02 / left 0.10 / bottom 0.98 / right 0.90\n位置の確信度 0.75"
     assert embed.footer.text == "jev-1.14.0 ・ 4,657 tokens"
     assert embed.image.url == "https://cdn/box.jpg"
     assert embed.thumbnail.url is None
@@ -91,15 +94,23 @@ def test_verdict_embed_no_hides_details():
     assert embed.thumbnail.url == "https://x/a.png"
 
 
-def test_verdict_embed_without_url_has_no_image():
-    embed = verdict_embed(to_verdict(PROFILE, response(0.5)), PROFILE, None)
-    assert embed.title == "ドラゴンかどうか判断がつきません"
-    assert "kind" in {f.name for f in embed.fields}
+def test_verdict_embed_unsure_states_premise_and_has_no_image():
+    embed = verdict_embed(to_verdict(PROFILE, response(0.71)), PROFILE, None)
+    assert embed.title == "たぶんドラゴンがいます"
+    assert [f.name for f in embed.fields] == ["種類（ドラゴンだとしたら）"]
     assert embed.thumbnail.url is None and embed.image.url is None
+    assert embed.url is None
+
+
+def test_unsure_title_splits_at_half():
+    assert verdict_embed(to_verdict(PROFILE, response(0.5)), PROFILE, None).title == "たぶんドラゴンがいます"
+    assert verdict_embed(to_verdict(PROFILE, response(0.49)), PROFILE, None).title == "たぶんドラゴンはいません"
 
 
 def test_error_message():
-    assert "too large" in error_message(FetchError("too large"))
+    assert error_message(FetchError("HTTP 404")) == "画像を取得できませんでした（HTTP 404）"
     assert error_message(UnidentifiedImageError()) == "対応していない画像形式です"
-    assert "429" in error_message(JevError(429, ""))
+    assert error_message(JevError(400, "")) == "判定 API が画像を受け付けませんでした"
+    assert "混み合って" in error_message(JevError(529, ""))
+    assert error_message(JevError(500, "")) == "判定 API がエラーを返しました（500）"
     assert error_message(RuntimeError()) == "判定中にエラーが発生しました"
